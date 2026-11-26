@@ -1,0 +1,15 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+data/
+.venv/
+venv/
+node_modules/
+tests/
+scripts/
+*.md
+!requirements.txt
+.DS_Store

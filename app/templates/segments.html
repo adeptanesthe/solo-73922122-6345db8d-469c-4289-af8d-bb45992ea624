@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}圈选对比段并校准 · ABX{% endblock %}
+{% block content %}
+
+<a class="backlink" href="/">← 重新上传一对 WAV</a>
+
+<div class="steps">
+  <span class="step done"><span class="num">✓</span>上传 A / B</span>
+  <span class="step active"><span class="num">2</span>圈选对比段并校准电平</span>
+  <span class="step"><span class="num">3</span>开题 ABX 盲听</span>
+</div>
+
+<h1>圈出 1～{{ max_segments }} 段两版均非静音的区间</h1>
+<p class="lead" id="file-meta">正在读取音频信息…</p>
+
+<div class="card">
+  <h2>波形与圈选</h2>
+  <p class="small muted" style="margin-top:0">
+    在任一波形上<strong>按住并横向拖动</strong>即可圈出新的一段（两版波形会同步显示）；
+    也可以使用下方的“建议区间”或手动输入精确时间。共可选择 1～{{ max_segments }} 段。
+  </p>
+
+  <div class="wave-wrap" id="wave-wrap">
+    <div class="wave-track">
+      <span class="wave-label a">A</span>
+      <canvas id="canvas-a" class="wave-canvas" height="110"></canvas>
+    </div>
+    <div class="wave-track">
+      <span class="wave-label b">B（原始）</span>
+      <canvas id="canvas-b" class="wave-canvas" height="110"></canvas>
+    </div>
+    <div class="time-axis" id="time-axis"></div>
+  </div>
+
+  <div id="suggestions" class="chips" aria-label="建议的非静音区间"></div>
+
+  <div class="seg-list" id="seg-list"></div>
+
+  <div class="actions">
+    <button class="btn secondary" id="add-segment" type="button">＋ 添加一段</button>
+    <button class="btn ghost" id="clear-segments" type="button">清空</button>
+    <span class="muted small" id="seg-count"></span>
+  </div>
+</div>
+
+<div class="card" id="calibration-card">
+  <h2>电平校准（全片共用一个正增益，只作用于 B）</h2>
+  <div class="actions" style="margin-top:0">
+    <button class="btn" id="calibrate-btn" type="button">校准电平</button>
+    <button class="btn big" id="open-question-btn" type="button" disabled>
+      校准通过，开题开始 ABX →
+    </button>
+    <span class="muted small" id="calib-stale-hint">区间或时间有改动后需重新校准。</span>
+  </div>
+
+  <div id="calib-alert" class="alert" hidden></div>
+  <div id="calib-report" hidden></div>
+</div>
+
+<div class="actions">
+  <a class="btn ghost" href="/questions">查看历史题目 →</a>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.__WORKSPACE_ID__ = {{ wid|tojson }};
+  window.__MAX_SEGMENTS__ = {{ max_segments|tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/segments.js') }}"></script>
+{% endblock %}

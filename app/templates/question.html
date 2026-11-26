@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}ABX 盲听 · {{ qid }}{% endblock %}
+{% block content %}
+
+<div id="question-root" data-qid="{{ qid }}">
+  <a class="backlink" href="/questions">← 题目记录</a>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;align-items:center">
+      <div>
+        <h1 style="margin-bottom:2px">ABX 盲听</h1>
+        <div class="muted small">
+          题号 <span class="mono" id="qid-label">{{ qid }}</span>
+          · <span id="q-meta">加载中…</span>
+        </div>
+      </div>
+      <div>
+        <a class="btn secondary" id="reselect-link" href="/">在另一页改选对比段并开题 →</a>
+      </div>
+    </div>
+
+    <div id="loading-alert" class="alert info">正在载入题目与冻结的校准音频…</div>
+    <div id="load-error" class="alert error" hidden></div>
+
+    <div id="abx-panel" hidden>
+      <p class="lead" style="margin:14px 0 0">
+        反复切换 <strong>A</strong>、<strong>B</strong> 与未知的
+        <strong>X</strong>：切换时会从<strong>同一播放位置</strong>继续。
+        判断 X 与哪一版相同后，在下方提交，提交后才会显示答案。
+      </p>
+
+      <div class="abx-switcher" role="tablist" aria-label="选择试听版本">
+        <button type="button" class="src-btn" data-kind="A" aria-pressed="false">
+          <span class="letter">A</span>
+          <span class="sub">参考 A（原始）</span>
+        </button>
+        <button type="button" class="src-btn" data-kind="B" aria-pressed="false">
+          <span class="letter">B</span>
+          <span class="sub">参考 B（增益校准）</span>
+        </button>
+        <button type="button" class="src-btn" data-kind="X" aria-pressed="true">
+          <span class="letter">X</span>
+          <span class="sub">未知版本</span>
+        </button>
+      </div>
+
+      <div class="player-bar">
+        <span class="now-playing" id="now-playing"><span class="dot"></span><span id="np-text">当前：X</span></span>
+        <audio id="player" controls preload="auto"></audio>
+      </div>
+
+      <div class="seg-jump" id="seg-jump">
+        <span class="label">对比段：</span>
+        <!-- segment jump / loop chips injected -->
+      </div>
+
+      <p class="small muted" style="margin:10px 0 0">
+        快捷键：<span class="kbd">A</span> / <span class="kbd">B</span> /
+        <span class="kbd">X</span> 切换音源，<span class="kbd">空格</span> 播放/暂停
+        （焦点不在输入框时）。
+      </p>
+
+      <div class="answer-box" id="answer-box">
+        <h2>提交你的判断</h2>
+        <form id="answer-form">
+          <div class="choice-grid">
+            <label class="choice" id="choice-a">
+              <input type="radio" name="choice" value="A">
+              <span>我认为 <strong>X 就是 A</strong></span>
+            </label>
+            <label class="choice" id="choice-b">
+              <input type="radio" name="choice" value="B">
+              <span>我认为 <strong>X 就是 B（校准版）</strong></span>
+            </label>
+          </div>
+          <div class="actions" style="margin-top:0">
+            <button class="btn big" type="submit" id="submit-answer-btn">提交判断并显示答案</button>
+            <span class="muted small">提交后不可更改；该题始终按开题时冻结的音频判分。</span>
+          </div>
+          <div id="answer-error" class="alert error" hidden></div>
+        </form>
+
+        <div id="result" hidden></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="calib-info-card" hidden>
+    <h2>本题校准信息（开题时冻结）</h2>
+    <div id="calib-mini"></div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>window.__QID__ = {{ qid|tojson }};</script>
+<script src="{{ url_for('static', filename='js/question.js') }}"></script>
+{% endblock %}

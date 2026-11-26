@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}上传 A/B 两版 · ABX 盲听校准台{% endblock %}
+{% block content %}
+
+<div class="steps">
+  <span class="step active"><span class="num">1</span>上传 A / B</span>
+  <span class="step"><span class="num">2</span>圈选对比段并校准电平</span>
+  <span class="step"><span class="num">3</span>开题 ABX 盲听</span>
+</div>
+
+<h1>比较两版降噪对白</h1>
+<p class="lead">
+  上传两份<strong>已对齐、等长、至多 30 秒</strong>的
+  <strong>16 kHz 单声道 PCM16 WAV</strong>。随后圈出 1～6 段两版均非静音的区间，
+  系统会为 B 版求一个全片共用、最接近 1 的可行正增益，把各段 RMS 比校准到 0.95～1.05，
+  且保证全片不超出 PCM16 范围。
+</p>
+
+<div class="card">
+  <h2>① 选择两份 WAV</h2>
+  <form id="upload-form" method="post" action="/upload" enctype="multipart/form-data">
+    <div class="dropgrid">
+      <label class="drop" id="drop-a" for="file-a">
+        <span class="tag a">A 版</span>
+        <div class="fname" id="fname-a">点击选择或拖入 A 版 WAV</div>
+        <div class="hint">16 kHz · mono · PCM16 · ≤ 30 s</div>
+        <input id="file-a" name="wav_a" type="file" accept=".wav,audio/wav,audio/x-wav" required>
+      </label>
+      <label class="drop" id="drop-b" for="file-b">
+        <span class="tag b">B 版</span>
+        <div class="fname" id="fname-b">点击选择或拖入 B 版 WAV</div>
+        <div class="hint">须与 A 等长且时间对齐</div>
+        <input id="file-b" name="wav_b" type="file" accept=".wav,audio/wav,audio/x-wav" required>
+      </label>
+    </div>
+
+    <div id="upload-alert" class="alert error" hidden></div>
+
+    <div class="actions">
+      <button class="btn big" type="submit" id="upload-btn">
+        <span class="btn-label">上传并校验 →</span>
+      </button>
+      <span class="muted small">文件只保存在本机 / 服务器数据目录，不会发送到外部。</span>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>② 没有文件？先试听样音并一键载入</h2>
+  <p class="muted small" style="margin-top:0">
+    样音由 <code>samples/make_samples.py</code> 用 NumPy 合成：同一段“对白”的两种降噪风格，
+    已做电平匹配，适合直接走一遍 ABX 流程。
+  </p>
+  <div class="sample-row">
+    <span class="tag a">样音 A</span>
+    <audio controls preload="none" src="/sample-audio/sample_A.wav"></audio>
+    <a class="btn secondary sm" href="/sample-audio/sample_A.wav" download="sample_A.wav">下载</a>
+  </div>
+  <div class="sample-row">
+    <span class="tag b">样音 B</span>
+    <audio controls preload="none" src="/sample-audio/sample_B.wav"></audio>
+    <a class="btn secondary sm" href="/sample-audio/sample_B.wav" download="sample_B.wav">下载</a>
+  </div>
+  <div class="actions">
+    <form method="post" action="/samples/use" id="sample-form">
+      <button class="btn" type="submit">使用这对样音圈选对比段 →</button>
+    </form>
+  </div>
+</div>
+
+<div class="card tight">
+  <h2>工作流程说明</h2>
+  <div class="grid-3 small">
+    <div>
+      <h3>电平校准</h3>
+      <p class="muted" style="margin:0">
+        按<strong>未量化</strong>的 <code>g·B</code> 计算每段 RMS(B)/RMS(A)，
+        求所有段增益窗口的交集，并扣除 PCM16 削波上限。
+      </p>
+    </div>
+    <div>
+      <h3>ABX 开题</h3>
+      <p class="muted" style="margin:0">
+        校准通过后，系统<strong>等概率</strong>选定 X=A 或 X=B（校准版），
+        校准音频与答案在开题时冻结。
+      </p>
+    </div>
+    <div>
+      <h3>换段再开题</h3>
+      <p class="muted" style="margin:0">
+        在“圈选对比段”页改选区间可开新题；每道旧题保留自己的音频快照与判分，互不影响。
+      </p>
+    </div>
+  </div>
+</div>
+
+{% if upload_error %}
+<script>
+  window.__SERVER_UPLOAD_ERROR__ = {{ upload_error|tojson }};
+</script>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/index.js') }}"></script>
+{% endblock %}

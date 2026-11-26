@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}题目记录 · ABX{% endblock %}
+{% block content %}
+
+<div class="steps">
+  <span class="step done"><span class="num">✓</span>上传 A / B</span>
+  <span class="step done"><span class="num">✓</span>圈选对比段并校准</span>
+  <span class="step active"><span class="num">3</span>ABX 题目记录</span>
+</div>
+
+<h1>题目记录</h1>
+<p class="lead">
+  每道题在开题时已冻结自己的校准音频与答案，因此之后改选对比段、再开新题，
+  都不会影响这里的旧题试听与判分。未提交的题目不会泄露答案。
+</p>
+
+<div class="actions" style="margin-top:0;margin-bottom:18px">
+  <a class="btn" href="/">＋ 上传新的一对 A/B</a>
+</div>
+
+{% if questions %}
+<div class="qlist">
+  {% for q in questions %}
+  <a class="qrow" href="/questions/{{ q.id }}">
+    <div>
+      <div class="qid">{{ q.id }}</div>
+      <div class="qmeta">{{ q.created_at | datetimeformat }}</div>
+    </div>
+    <div class="qmeta">
+      {{ q.segment_count }} 个对比段 ·
+      增益 g={% if q.gain is not none %}{{ "%.5f"|format(q.gain) }}{% else %}—{% endif %}
+      {% if q.workspace_id %} · 工作区 <span class="mono">{{ q.workspace_id }}</span>{% endif %}
+    </div>
+    <div>
+      {% if q.status == "open" %}
+        <span class="pill open">待判断</span>
+      {% elif q.correct %}
+        <span class="pill ok">判断正确</span>
+      {% else %}
+        <span class="pill bad">判断错误</span>
+      {% endif %}
+    </div>
+    <div class="qresult small muted">
+      {% if q.status == "answered" %}
+        选 {{ q.choice }} · 答案 {{ q.x_is }}
+      {% else %}
+        点击进入 ABX →
+      {% endif %}
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card empty">
+  <div class="big-icon">🎧</div>
+  <div>还没有 ABX 题目。</div>
+  <div class="small" style="margin-top:6px">先上传一对 WAV（或载入样音），校准通过后即可开题。</div>
+  <div class="actions" style="justify-content:center">
+    <a class="btn" href="/">去上传 / 载入样音</a>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
