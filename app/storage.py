@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from .calibration import calibrate
+from .packaging import PackageDoesNotFit, build_package
 from .wavutil import gain_limited_samples, validate_pair, write_pcm16_wav
 
 _LOCK = threading.Lock()
@@ -97,6 +98,158 @@ def load_workspace_audio(wid: str):
     a, b = validate_pair(raw_a, raw_b)
     meta = _read_json(wdir / "meta.json")
     return meta, raw_a, raw_b, a, b
+
+
+# ---------------------------------------------------------------------------
+# Chunk ZIP package (one current package per workspace; replace-on-success)
+# ---------------------------------------------------------------------------
+
+
+def package_record_path(wid: str) -> Path:
+    return workspace_dir(wid) / "package.json"
+
+
+def package_zip_path(wid: str) -> Path:
+    return workspace_dir(wid) / "package.zip"
+
+
+def get_package_record(wid: str) -> Dict[str, Any]:
+    path = package_record_path(wid)
+    if not path.is_file():
+        raise KeyError(wid)
+    return _read_json(path)
+
+
+def package_exists(wid: str) -> bool:
+    return package_record_path(wid).is_file() and package_zip_path(wid).is_file()
+
+
+def get_package_zip(wid: str) -> bytes:
+    path = package_zip_path(wid)
+    if not path.is_file():
+        raise KeyError(wid)
+    return path.read_bytes()
+
+
+def _store_package(wid: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    """Atomically replace the current package zip + record."""
+    wdir = workspace_dir(wid)
+    zip_path = wdir / "package.zip"
+    rec_path = wdir / "package.json"
+    zip_tmp = wdir / "package.zip.tmp"
+    rec_tmp = wdir / "package.json.tmp"
+
+    previous_version = 0
+    if rec_path.is_file():
+        try:
+            previous_version = int(_read_json(rec_path).get("version") or 0)
+        except (json.JSONDecodeError, OSError, ValueError, TypeError):
+            previous_version = 0
+
+    blob = result.pop("zip_blob")
+    record = {
+        "workspace_id": wid,
+        "version": previous_version + 1,
+        "created_at": time.time(),
+        "budget_bytes": result["budget_bytes"],
+        "zip_bytes": result["zip_bytes"],
+        "minimum_bytes": result["minimum_bytes"],
+        "predicted_zip_bytes": result.get("predicted_zip_bytes"),
+        "total_sse": result["total_sse"],
+        "chunk_count": result["chunk_count"],
+        "bit_depths": [c["bit_depth"] for c in result["chunks"]],
+        "pcm16_chunk_indices": result["pcm16_chunk_indices"],
+        "pcm8_chunk_indices": result["pcm8_chunk_indices"],
+        "intersection_chunks": result["intersection_chunks"],
+        "manual_chunks": result["manual_chunks"],
+        "forced_chunks": result["forced_chunks"],
+        # Frozen fidelity ranges used to compute intersection forcing.
+        "segments": result["segments"],
+        "chunks": result["chunks"],
+    }
+
+    with _LOCK:
+        zip_tmp.write_bytes(blob)
+        rec_tmp.write_text(
+            json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        os.replace(zip_tmp, zip_path)
+        os.replace(rec_tmp, rec_path)
+    return record
+
+
+def create_package(
+    wid: str,
+    budget_bytes: Any,
+    segments_payload: Any,
+    manual_chunks: Any = None,
+) -> Dict[str, Any]:
+    """Plan + persist a fresh package using the supplied fidelity segments."""
+    _meta, _ra, _rb, a, b = load_workspace_audio(wid)
+    # build_package raises PackageDoesNotFit BEFORE any file is touched.
+    try:
+        result = build_package(a, b, budget_bytes, segments_payload, manual_chunks)
+    except PackageDoesNotFit as e:
+        # If a previous package exists, attach it so the UI can re-sync to
+        # the retained artifact instead of clearing the panel.
+        if package_exists(wid):
+            try:
+                e.report["current"] = public_package(get_package_record(wid))
+            except (KeyError, json.JSONDecodeError, OSError):
+                pass
+        raise
+    return _store_package(wid, result)
+
+
+def reallocate_package(
+    wid: str,
+    manual_chunks: Any,
+    budget_bytes: Any = None,
+) -> Dict[str, Any]:
+    """Re-run allocation with updated manual marks.
+
+    The fidelity segments and (by default) the byte cap are frozen from the
+    current package.  On :class:`PackageDoesNotFit` the previous zip/record
+    are left exactly in place and the exception carries the old record.
+    """
+    old = get_package_record(wid)
+    budget = old["budget_bytes"] if budget_bytes is None else budget_bytes
+    _meta, _ra, _rb, a, b = load_workspace_audio(wid)
+    try:
+        result = build_package(a, b, budget, old.get("segments", []), manual_chunks)
+    except PackageDoesNotFit as e:
+        e.report["current"] = public_package(old)
+        raise
+    return _store_package(wid, result)
+
+
+def public_package(rec: Dict[str, Any]) -> Dict[str, Any]:
+    """JSON view of a package record with download/restore URLs."""
+    wid = rec["workspace_id"]
+    return {
+        "ok": True,
+        "workspace_id": wid,
+        "version": rec.get("version", 1),
+        "created_at": rec.get("created_at"),
+        "budget_bytes": rec.get("budget_bytes"),
+        "zip_bytes": rec.get("zip_bytes"),
+        "minimum_bytes": rec.get("minimum_bytes"),
+        "total_sse": rec.get("total_sse"),
+        "chunk_count": rec.get("chunk_count"),
+        "bit_depths": rec.get("bit_depths", []),
+        "pcm16_chunk_indices": rec.get("pcm16_chunk_indices", []),
+        "pcm8_chunk_indices": rec.get("pcm8_chunk_indices", []),
+        "intersection_chunks": rec.get("intersection_chunks", []),
+        "manual_chunks": rec.get("manual_chunks", []),
+        "forced_chunks": rec.get("forced_chunks", []),
+        "segments": rec.get("segments", []),
+        "chunks": rec.get("chunks", []),
+        "download_url": f"/api/workspaces/{wid}/package/download",
+        "restored_audio_urls": {
+            "A": f"/api/workspaces/{wid}/package/restored/A.wav",
+            "B": f"/api/workspaces/{wid}/package/restored/B.wav",
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

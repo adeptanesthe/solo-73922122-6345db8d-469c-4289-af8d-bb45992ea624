@@ -561,6 +561,12 @@
     els.report.innerHTML = html;
   }
 
+  // Expose the current fidelity segments to the ZIP packaging panel.
+  window.SegmentsPage = {
+    getSegments: payloadSegments,
+    getMaxSegments: function () { return MAX_SEGMENTS; }
+  };
+
   // --------------------------------------------------------- open question
   els.openBtn.addEventListener("click", function () {
     if (!state.segments.length) {

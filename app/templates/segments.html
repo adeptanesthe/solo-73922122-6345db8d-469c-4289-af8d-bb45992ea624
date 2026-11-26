@@ -57,6 +57,64 @@
   <div id="calib-report" hidden></div>
 </div>
 
+<div class="card" id="package-card">
+  <h2>审听附件打包：1 秒分块 · ZIP/DEFLATE · 按上限最优分配 PCM16 / PCM8</h2>
+  <p class="small muted" style="margin-top:0">
+    把原始 A、B 各切成 <strong>1 秒一块</strong>（尾块保留实际长度），同号的 A/B 块
+    <strong>使用相同位深</strong>：保留 PCM16，或取高 8 位转标准无符号 PCM8。
+    与上方圈选保真段相交的块强制 PCM16。各块 WAV 以 DEFLATE 打入同一个 ZIP，
+    在你填的字节上限内，让解包还原 PCM16 后两轨相对原音的样点平方误差总和最小。
+    网页会直接从这份 ZIP 还原 A/B 试听，并提供<strong>同一份 ZIP</strong>下载；
+    试听时可把某块标为保真块，再按原上限重新分配。
+  </p>
+
+  <div class="pkg-budget-row">
+    <label for="pkg-budget"><strong>整份 ZIP 字节上限（字节）</strong></label>
+    <input id="pkg-budget" type="number" min="1" step="1024" inputmode="numeric" value="600000">
+    <span class="pkg-presets" id="pkg-presets">
+      <button type="button" class="chip" data-bytes="450000">450 KB</button>
+      <button type="button" class="chip" data-bytes="550000">550 KB</button>
+      <button type="button" class="chip" data-bytes="650000">650 KB</button>
+      <button type="button" class="chip" data-bytes="700000">700 KB</button>
+      <button type="button" class="chip" data-bytes="10000000">不限（全 PCM16）</button>
+    </span>
+    <button class="btn" id="pkg-generate" type="button">生成打包</button>
+  </div>
+
+  <div id="pkg-alert" class="alert" hidden></div>
+
+  <div id="pkg-panel" hidden>
+    <div id="pkg-summary" class="pkg-summary"></div>
+    <div class="pkg-bar" aria-hidden="true"><div class="pkg-bar-fill" id="pkg-bar-fill"></div></div>
+    <div class="small mono" id="pkg-bar-text"></div>
+
+    <p class="small" id="pkg-restore-note" style="margin:10px 0 4px"></p>
+
+    <div class="pkg-audition">
+      <div class="pkg-track">
+        <span class="tag a">A · 从 ZIP 还原</span>
+        <audio id="pkg-audio-a" controls preload="metadata"></audio>
+      </div>
+      <div class="pkg-track">
+        <span class="tag b">B · 从 ZIP 还原</span>
+        <audio id="pkg-audio-b" controls preload="metadata"></audio>
+      </div>
+    </div>
+
+    <div class="actions" style="margin-top:12px">
+      <a class="btn secondary" id="pkg-download" download>
+        ⬇ 下载这份 ZIP（<span id="pkg-dl-size">—</span>）
+      </a>
+      <button class="btn" id="pkg-realloc" type="button">应用保真标记，并按原上限重新分配</button>
+      <span class="small muted" id="pkg-budget-hint"></span>
+    </div>
+    <div id="pkg-realloc-alert" class="alert" hidden></div>
+
+    <h3 style="margin-top:16px">分块列表（可逐块试听 / 勾选保真块）</h3>
+    <div class="pkg-chunk-list" id="pkg-chunk-list"></div>
+  </div>
+</div>
+
 <div class="actions">
   <a class="btn ghost" href="/questions">查看历史题目 →</a>
 </div>
@@ -69,4 +127,6 @@
   window.__MAX_SEGMENTS__ = {{ max_segments|tojson }};
 </script>
 <script src="{{ url_for('static', filename='js/segments.js') }}"></script>
+<script src="{{ url_for('static', filename='js/zip-restore.js') }}"></script>
+<script src="{{ url_for('static', filename='js/package.js') }}"></script>
 {% endblock %}

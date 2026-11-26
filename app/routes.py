@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 from flask import (
     Blueprint,
@@ -26,15 +26,22 @@ from .calibration import (
 )
 from .storage import (
     InfeasibleCalibration,
+    create_package,
     create_question,
     create_workspace,
+    get_package_record,
+    get_package_zip,
     list_questions,
     load_workspace_audio,
+    package_exists,
+    public_package,
     public_question,
     question_dir,
+    reallocate_package,
     submit_answer,
 )
-from .wavutil import WavError
+from .packaging import PackageDoesNotFit, PackageError, restore_zip
+from .wavutil import WavError, write_pcm16_wav
 
 bp = Blueprint("web", __name__)
 
@@ -300,6 +307,152 @@ def open_question(wid: str):
     if wants_json():
         return jsonify({"ok": True, "redirect": target, "question": rec}), 201
     return _redirect_see_other(target)
+
+
+# ---------------------------------------------------------------------------
+# Chunk ZIP package (size-capped, budget-optimal PCM16/PCM8 allocation)
+# ---------------------------------------------------------------------------
+
+
+def _package_body() -> Dict[str, Any]:
+    body = request.get_json(silent=True)
+    if body is None:
+        # Form fallback (budget as a normal input).
+        body = {
+            "budget_bytes": request.form.get("budget_bytes")
+            or request.form.get("budget"),
+            "manual_chunks": request.form.get("manual_chunks"),
+        }
+        seg_raw = request.form.get("segments")
+        if seg_raw:
+            import json as _json
+
+            try:
+                body["segments"] = _json.loads(seg_raw)
+            except ValueError:
+                raise SegmentError("segments 表单字段不是合法 JSON")
+    if not isinstance(body, dict):
+        raise PackageError("请求体必须是 JSON 对象")
+    return body
+
+
+def _budget_from_body(body: Dict[str, Any]) -> Any:
+    for key in ("budget_bytes", "budget", "limit_bytes", "max_bytes", "cap_bytes"):
+        if key in body and body[key] not in (None, ""):
+            return body[key]
+    raise PackageError("请填写字节上限 budget_bytes（正整数，单位：字节）")
+
+
+@bp.post("/api/workspaces/<wid>/package")
+def api_create_package(wid: str):
+    try:
+        body = _package_body()
+        budget = _budget_from_body(body)
+        segments = body.get("segments")
+        manual = body.get("manual_chunks") or body.get("fidelity_chunks") or []
+        existed = package_exists(wid)
+        rec = create_package(wid, budget, segments, manual)
+    except KeyError:
+        return jsonify({"ok": False, "error": "工作区不存在或已过期"}), 404
+    except (PackageError, SegmentError) as e:
+        return jsonify({"ok": False, "error": str(e), "code": "invalid_package"}), 400
+    except PackageDoesNotFit as e:
+        payload = {"ok": False, "code": "package_does_not_fit", "error": e.report["error"]}
+        for k in ("budget_bytes", "minimum_bytes", "slack_bytes"):
+            if k in e.report:
+                payload[k] = e.report[k]
+        if "current" in e.report:
+            payload["package"] = e.report["current"]
+        return jsonify(payload), 409
+    return jsonify({"ok": True, "package": public_package(rec)}), (
+        200 if existed else 201
+    )
+
+
+@bp.get("/api/workspaces/<wid>/package")
+def api_get_package(wid: str):
+    try:
+        exists = package_exists(wid)
+    except KeyError:
+        return jsonify({"ok": False, "error": "工作区不存在或已过期"}), 404
+    if not exists:
+        # 200 + null keeps the page's silent initial probe out of the
+        # browser's error console; unknown workspace ids still get a 404.
+        return jsonify({"ok": True, "package": None})
+    try:
+        rec = get_package_record(wid)
+    except KeyError:
+        return jsonify({"ok": True, "package": None})
+    return jsonify({"ok": True, "package": public_package(rec)})
+
+
+@bp.post("/api/workspaces/<wid>/package/reallocate")
+def api_reallocate_package(wid: str):
+    try:
+        body = _package_body()
+        manual = body.get("manual_chunks")
+        if manual is None:
+            manual = body.get("fidelity_chunks") or []
+        budget = body.get("budget_bytes", body.get("budget"))
+        rec = reallocate_package(wid, manual, budget)
+    except KeyError:
+        return jsonify({"ok": False, "code": "no_package",
+                        "error": "还没有上一份包，无法重新分配；请先填写上限生成打包"}), 404
+    except (PackageError, SegmentError) as e:
+        return jsonify({"ok": False, "error": str(e), "code": "invalid_package"}), 400
+    except PackageDoesNotFit as e:
+        # Storage guarantees the previous package + marks were retained.
+        payload = {"ok": False, "code": "package_does_not_fit", "error": e.report["error"]}
+        for k in ("budget_bytes", "minimum_bytes", "slack_bytes"):
+            if k in e.report:
+                payload[k] = e.report[k]
+        if "current" in e.report:
+            payload["package"] = e.report["current"]
+        payload["retained"] = True
+        return jsonify(payload), 409
+    return jsonify({"ok": True, "package": public_package(rec)})
+
+
+@bp.get("/api/workspaces/<wid>/package/download")
+def api_download_package(wid: str):
+    try:
+        data = get_package_zip(wid)
+        rec = get_package_record(wid)
+    except KeyError:
+        abort(404)
+    resp = Response(data, mimetype="application/zip")
+    resp.headers["Content-Length"] = str(len(data))
+    resp.headers["Content-Disposition"] = (
+        f'attachment; filename="abx-package-{wid}-v{rec.get("version", 1)}.zip"'
+    )
+    resp.headers["Cache-Control"] = "private, no-store"
+    return resp
+
+
+@bp.get("/api/workspaces/<wid>/package/restored/<name>")
+def api_restored_package_audio(wid: str, name: str):
+    """Server-side unpack of the *stored ZIP* back to full PCM16 A/B WAV.
+
+    The segment page normally restores inside the browser from the downloaded
+    ZIP; this endpoint is a no-JS / verification fallback that also proves
+    the archive unpacks to valid PCM16.
+    """
+    if name not in ("A.wav", "B.wav"):
+        abort(404)
+    try:
+        blob = get_package_zip(wid)
+        restored = restore_zip(blob)
+    except KeyError:
+        abort(404)
+    except PackageError:
+        abort(500)
+    samples = restored["a"] if name == "A.wav" else restored["b"]
+    data = write_pcm16_wav(samples)
+    resp = Response(data, mimetype="audio/wav")
+    resp.headers["Accept-Ranges"] = "bytes"
+    resp.headers["Content-Length"] = str(len(data))
+    resp.headers["Cache-Control"] = "private, no-store"
+    return resp
 
 
 # ---------------------------------------------------------------------------

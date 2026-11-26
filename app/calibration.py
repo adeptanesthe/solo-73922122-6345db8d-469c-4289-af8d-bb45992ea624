@@ -55,12 +55,22 @@ class SegmentError(ValueError):
     """The submitted segment list / boundaries are invalid."""
 
 
-def parse_segments(payload: Any, n_samples: int) -> List[Dict[str, Any]]:
+def parse_segments(
+    payload: Any,
+    n_samples: int,
+    *,
+    min_count: int = MIN_SEGMENTS,
+    max_count: int = MAX_SEGMENTS,
+    count_label: str | None = None,
+) -> List[Dict[str, Any]]:
     """Normalize the JSON segment payload into sample-exact half-open ranges.
 
     Accepted segment objects (all keys optional aliases):
       * samples:  ``start_sample`` / ``end_sample`` (also startSample/endSample)
       * seconds:  ``start`` / ``end`` / ``start_sec`` ...
+
+    The count bounds default to the calibration rule (1..6) but the ZIP
+    packager reuses this parser with ``min_count=0``.
 
     Returns a list of ``{"start_sample", "end_sample"}`` dicts.
     """
@@ -68,13 +78,13 @@ def parse_segments(payload: Any, n_samples: int) -> List[Dict[str, Any]]:
         # Allow {"segments": [...]} wrappers if a caller passes the body.
         payload = payload.get("segments", payload)
     if not isinstance(payload, Sequence) or isinstance(payload, (str, bytes)):
-        raise SegmentError("segments 必须是包含 1～6 个区间的数组")
+        raise SegmentError("segments 必须是区间对象组成的数组")
 
     raw_list = list(payload)
-    if not (MIN_SEGMENTS <= len(raw_list) <= MAX_SEGMENTS):
+    if not (min_count <= len(raw_list) <= max_count):
+        label = count_label or f"{min_count}～{max_count} 段"
         raise SegmentError(
-            f"对比段数量必须为 {MIN_SEGMENTS}～{MAX_SEGMENTS} 段，"
-            f"当前提交了 {len(raw_list)} 段"
+            f"对比段数量必须为{label}，当前提交了 {len(raw_list)} 段"
         )
 
     out: List[Dict[str, Any]] = []
